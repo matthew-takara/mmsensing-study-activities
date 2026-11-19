@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Study activity</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f5f3;--fg:#15171a;--mut:#5c6167;--card:#ffffff;--line:#d5d8d4;--acc:#1c5cab;--on:#ffffff;--ok:#1f7a4d;--bad:#b3362f}
+@media (prefers-color-scheme:dark){:root{--bg:#141618;--fg:#eceeec;--mut:#9aa0a6;--card:#1f2326;--line:#343a3e;--acc:#7fa9ea;--on:#0b0b0b;--ok:#5cc28e;--bad:#f07c73}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.4}
+body{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));touch-action:manipulation}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;color:var(--mut);font-size:15px;margin-bottom:10px}
+main{flex:1;display:flex;flex-direction:column;gap:14px;max-width:560px;width:100%;margin:0 auto}
+h1{font-size:22px;margin:0}
+.note{color:var(--mut);font-size:14px;text-align:center;margin-top:12px}
+.btn{width:100%;min-height:58px;border:2px solid var(--line);background:var(--card);color:var(--fg);border-radius:14px;font:inherit;font-size:20px;padding:10px 14px}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:var(--on)}
+.btn:active{transform:scale(.98)}
+.grid{display:grid;gap:10px}
+.cell{aspect-ratio:1;border:2px solid var(--line);background:var(--card);border-radius:14px;display:flex;align-items:center;justify-content:center;padding:8px}
+.cell svg{width:100%;height:100%}
+.cell.ok{border-color:var(--ok)}.cell.bad{border-color:var(--bad);animation:sh .25s}
+.cell.back{background:var(--acc);border-color:var(--acc)}.cell.done{opacity:.35}
+@keyframes sh{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){.cell.bad{animation:none}}
+.big{font-size:44px;letter-spacing:.14em;text-align:center;font-weight:700;margin:10px 0;text-transform:uppercase}
+input[type=text]{width:100%;min-height:58px;font:inherit;font-size:26px;text-align:center;border:2px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);text-transform:lowercase}
+.q{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:14px}
+.q p{margin:0 0 10px}.passage{font-size:19px;line-height:1.5}
+.opt{margin-top:8px}
+.row{display:flex;gap:10px}
+.round{color:var(--mut)}
+a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
+.tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:74px;padding:12px 16px;border:2px solid var(--line);background:var(--card);color:var(--fg);border-radius:14px;text-decoration:none}
+.tile b{font-size:21px}.tile span{font-size:15px;color:var(--mut)}
+.tile:active{transform:scale(.98)}
+</style>
+</head>
+<body>
+<header><span><a id="back" href="#" hidden>&larr; Menu</a><span id="mod">Study activities</span></span><span class="round" id="round"></span></header>
+<main id="app"></main>
+<p class="note">Part of a research study. Nothing you do here is saved or sent anywhere. Pick any activity, switch whenever you like, and keep going until the tone.</p>
+<script>
+(function () {
+  "use strict";
+  const app = document.getElementById("app"), modEl = document.getElementById("mod"), roundEl = document.getElementById("round");
+  const rnd = n => Math.floor(Math.random() * n), pick = a => a[rnd(a.length)];
+  const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const el = (tag, attrs, kids) => { const n = document.createElement(tag); for (const k in (attrs || {})) { if (k === "class") n.className = attrs[k]; else if (k === "text") n.textContent = attrs[k]; else if (k === "html") n.innerHTML = attrs[k]; else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), attrs[k]); else n.setAttribute(k, attrs[k]); } [].concat(kids || []).forEach(c => c != null && n.append(c)); return n; };
+  let timers = [];
+  const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.push(t); return t; };
+  const clearAll = () => { timers.forEach(clearTimeout); timers = []; };
+
+  /* keep the screen awake if the browser allows it; ignore failure */
+  let lock = null;
+  const wake = () => { try { if ("wakeLock" in navigator && !lock) navigator.wakeLock.request("screen").then(l => { lock = l; l.addEventListener("release", () => { lock = null; }); }).catch(() => {}); } catch (e) {} };
+  document.addEventListener("pointerdown", wake); document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+
+  /* ---------- shapes ---------- */
+  const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#6250d6", "#e87ba4", "#c98500"];
+  const SHAPES = ["circle", "square", "triangle", "star", "diamond", "hexagon"];
+  const poly = (n, r, rot, inner) => { const pts = []; const m = inner ? n * 2 : n; for (let i = 0; i < m; i++) { const rr = inner && i % 2 ? r * inner : r, a = rot + i * 2 * Math.PI / m; pts.push((50 + rr * Math.cos(a)).toFixed(1) + "," + (50 + rr * Math.sin(a)).toFixed(1)); } return pts.join(" "); };
+  const shapeSvg = (kind, color, size) => {
+    const s = size || 1, r = 34 * s; let body;
+    if (kind === "circle") body = `<circle cx="50" cy="50" r="${r}" fill="${color}"/>`;
+    else if (kind === "square") body = `<rect x="${50 - r * .85}" y="${50 - r * .85}" width="${r * 1.7}" height="${r * 1.7}" rx="4" fill="${color}"/>`;
+    else if (kind === "triangle") body = `<polygon points="${poly(3, r * 1.2, -Math.PI / 2)}" fill="${color}"/>`;
+    else if (kind === "star") body = `<polygon points="${poly(5, r * 1.2, -Math.PI / 2, .45)}" fill="${color}"/>`;
+    else if (kind === "diamond") body = `<polygon points="${poly(4, r * 1.2, -Math.PI / 2)}" fill="${color}"/>`;
+    else body = `<polygon points="${poly(6, r * 1.1, 0)}" fill="${color}"/>`;
+    return `<svg viewBox="0 0 100 100" aria-hidden="true">${body}</svg>`;
+  };
+  let round = 0; const bump = () => { round++; roundEl.textContent = "Round " + round; };
+
+  /* ---------- 1: odd one out ---------- */
+  function oddOneOut() {
+    modEl.textContent = "Odd one out"; round = 0;
+    const holder = el("div", { class: "grid", style: "grid-template-columns:repeat(3,1fr)" }); app.append(el("h1", { text: "Tap the one that is different." }), holder);
+    function next() {
+      clearAll(); holder.replaceChildren(); bump();
+      const kind = pick(SHAPES), color = pick(COLORS), mode = pick(["shape", "color", "size"]); const odd = rnd(6);
+      for (let i = 0; i < 6; i++) {
+        let k = kind, c = color, s = 1;
+        if (i === odd) { if (mode === "shape") k = pick(SHAPES.filter(x => x !== kind)); if (mode === "color") c = pick(COLORS.filter(x => x !== color)); if (mode === "size") s = 0.62; }
+        const cell = el("button", { class: "cell", type: "button", "aria-label": "option " + (i + 1), html: shapeSvg(k, c, s) });
+        cell.addEventListener("click", () => { if (i === odd) { cell.classList.add("ok"); later(next, 250); } else { cell.classList.add("bad"); later(() => cell.classList.remove("bad"), 300); } });
+        holder.append(cell);
+      }
+    }
+    next();
+  }
+
+  /* ---------- 2: memory match ---------- */
+  function memory() {
+    modEl.textContent = "Memory match"; round = 0;
+    const holder = el("div", { class: "grid", style: "grid-template-columns:repeat(4,1fr)" }); app.append(el("h1", { text: "Find the matching pairs." }), holder);
+    function board() {
+      clearAll(); holder.replaceChildren(); bump();
+      const combos = shuffle(SHAPES.flatMap((k, i) => COLORS.slice(0, 3).map((c, j) => [k, COLORS[(i + j * 2 + round) % COLORS.length]])));
+      const seen = new Set(), picks = []; combos.forEach(c => { const id = c[0] + c[1]; if (!seen.has(id) && picks.length < 8) { seen.add(id); picks.push(c); } });
+      const deck = shuffle(picks.concat(picks));
+      let first = null, busy = false, left = deck.length; const cells = [];
+      deck.forEach((d, i) => {
+        const cell = el("button", { class: "cell back", type: "button", "aria-label": "card " + (i + 1) }); cells.push(cell);
+        cell.addEventListener("click", () => {
+          if (busy || cell.classList.contains("done") || !cell.classList.contains("back")) return;
+          cell.classList.remove("back"); cell.innerHTML = shapeSvg(d[0], d[1]);
+          if (first === null) { first = i; return; }
+          const a = first, b = i; first = null;
+          if (deck[a][0] === deck[b][0] && deck[a][1] === deck[b][1]) { cells[a].classList.add("done"); cells[b].classList.add("done"); left -= 2; if (left <= 0) later(board, 700); }
+          else { busy = true; later(() => { [a, b].forEach(x => { cells[x].classList.add("back"); cells[x].innerHTML = ""; }); busy = false; }, 800); }
+        });
+        holder.append(cell);
+      });
+    }
+    board();
+  }
+
+  /* ---------- 3: word scramble ---------- */
+  const WORDS = "planet garden window bridge pencil river orange basket silver pocket rabbit button candle forest jacket ladder market mirror number paper puzzle ribbon rocket island season sunset thunder tunnel valley violin yellow winter zipper anchor bottle cactus desert engine flower hammer kettle lemon marble needle ocean parrot quilt saddle turtle".split(" ");
+  function scramble() {
+    modEl.textContent = "Word scramble"; round = 0;
+    const word = el("div", { class: "big" }), inp = el("input", { type: "text", autocomplete: "off", autocorrect: "off", autocapitalize: "off", spellcheck: "false", "aria-label": "your answer" });
+    const skip = el("button", { class: "btn", type: "button", text: "Skip" });
+    app.append(el("h1", { text: "Unscramble the word and type it." }), word, inp, skip);
+    let answer = "", last = "";
+    function next() {
+      clearAll(); bump(); inp.value = "";
+      do { answer = pick(WORDS); } while (answer === last); last = answer;
+      let s; do { s = shuffle(answer.split("")).join(""); } while (s === answer);
+      word.textContent = s;
+    }
+    inp.addEventListener("input", () => { if (inp.value.trim().toLowerCase() === answer) { inp.style.borderColor = "var(--ok)"; later(() => { inp.style.borderColor = ""; next(); }, 350); } });
+    skip.addEventListener("click", next); next();
+  }
+
+  /* ---------- 4: read and answer ---------- */
+  const PASSAGES = [
+    { t: "Bridges", p: "Many bridges use arches, beams or cables. An arch pushes the weight outward and down into its supports. A beam bridge rests flat across two supports and carries the weight along its length. A suspension bridge hangs the road from cables that pass over tall towers. Engineers choose a type based on how far the bridge must span and what the ground can support.",
+      q: [["Which bridge type hangs the road from cables?", ["Arch", "Beam", "Suspension"], 2], ["Where does an arch push the weight?", ["Into its supports", "Up into the sky", "Into the cables"], 0]] },
+    { t: "Tides", p: "Tides are caused mainly by the pull of the Moon's gravity on Earth's oceans. Most coasts have two high tides and two low tides each day. The difference between high and low water varies from place to place. Narrow bays can have very large tidal ranges.",
+      q: [["What mainly causes tides?", ["Wind", "The Moon's gravity", "Rivers"], 1], ["How many high tides do most coasts have each day?", ["One", "Two", "Six"], 1]] },
+    { t: "Honeybees", p: "Honeybees live in colonies. Worker bees gather nectar and pollen from flowers. Nectar is turned into honey and stored in wax comb. A colony has one queen, who lays the eggs. In cold weather the bees cluster together to keep warm.",
+      q: [["What do worker bees gather?", ["Nectar and pollen", "Sand", "Leaves"], 0], ["Where is honey stored?", ["In the soil", "In wax comb", "In the flowers"], 1]] },
+  ];
+  function reading() {
+    modEl.textContent = "Read and answer"; round = 0;
+    const box = el("div", { class: "grid" }); app.append(box);
+    let idx = rnd(PASSAGES.length);
+    function show() {
+      clearAll(); box.replaceChildren(); bump(); const P = PASSAGES[idx % PASSAGES.length]; idx++;
+      box.append(el("h1", { text: P.t }), el("p", { class: "passage", text: P.p }));
+      let answered = 0;
+      P.q.forEach(([qt, opts, right]) => {
+        const q = el("div", { class: "q" }, el("p", { text: qt }));
+        opts.forEach((o, i) => { const b = el("button", { class: "btn opt", type: "button", text: o }); b.addEventListener("click", () => {
+          if (i === right) { b.style.borderColor = "var(--ok)"; q.querySelectorAll("button").forEach(x => x.disabled = true); answered++; if (answered === P.q.length) later(() => { show(); window.scrollTo(0, 0); }, 900); }
+          else { b.style.borderColor = "var(--bad)"; later(() => { b.style.borderColor = ""; }, 400); } }); q.append(b); });
+        box.append(q);
+      });
+    }
+    show();
+  }
+
+  const MODS = { "1": oddOneOut, "2": memory, "3": scramble, "4": reading };
+  const INFO = [["1", "Odd one out", "Tap the shape that is different."], ["2", "Memory match", "Find the matching pairs."],
+                ["3", "Word scramble", "Unscramble the word and type it."], ["4", "Read and answer", "Read a short passage and answer questions."]];
+  const backEl = document.getElementById("back");
+  function menu() {
+    modEl.textContent = "Study activities"; backEl.hidden = true;
+    app.append(el("h1", { text: "Choose an activity." }), el("p", { class: "round", text: "You can switch to another one at any time." }),
+      ...INFO.map(([k, n, d]) => el("a", { class: "tile", href: "#" + k }, [el("b", { text: n }), el("span", { text: d })])));
+  }
+  function route() {
+    clearAll(); app.replaceChildren(); roundEl.textContent = ""; round = 0;
+    const key = (location.hash || "").replace("#", "");
+    if (MODS[key]) { backEl.hidden = false; MODS[key](); } else menu();
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>
