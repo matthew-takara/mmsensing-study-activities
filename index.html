@@ -38,6 +38,14 @@ a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
 .tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:74px;padding:12px 16px;border:2px solid var(--line);background:var(--card);color:var(--fg);border-radius:14px;text-decoration:none}
 .tile b{font-size:21px}.tile span{font-size:15px;color:var(--mut)}
 .tile:active{transform:scale(.98)}
+.feed{display:flex;flex-direction:column;gap:16px}
+.card2{background:var(--card);border:2px solid var(--line);border-radius:14px;overflow:hidden}
+.card2 svg{display:block;width:100%;height:auto}
+.cap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;font-size:16px}
+.cap .st{color:var(--mut)}.cap.ok .st{color:var(--ok);font-weight:700}
+.qb p{margin:0;padding:12px 14px 10px;font-size:18px;font-weight:600}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:0 12px 12px}
+.opts .btn{min-height:52px;font-size:19px}
 </style>
 </head>
 <body>
@@ -53,7 +61,14 @@ a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
   const el = (tag, attrs, kids) => { const n = document.createElement(tag); for (const k in (attrs || {})) { if (k === "class") n.className = attrs[k]; else if (k === "text") n.textContent = attrs[k]; else if (k === "html") n.innerHTML = attrs[k]; else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), attrs[k]); else n.setAttribute(k, attrs[k]); } [].concat(kids || []).forEach(c => c != null && n.append(c)); return n; };
   let timers = [];
   const later = (fn, ms) => { const t = setTimeout(fn, ms); timers.push(t); return t; };
-  const clearAll = () => { timers.forEach(clearTimeout); timers = []; };
+  let cleanups = [];
+  let POINT = () => {}, roundTimer = null;
+  const stopRound = () => { clearInterval(roundTimer); roundTimer = null; POINT = () => {}; };
+  const NAMES = { "1": "Memory match", "2": "Word scramble", "3": "Picture quiz", "4": "Picture hunt" };
+  const SECS = { "1": 60, "2": 30, "3": 30, "4": 30 };
+  const MEDALS = { "1": [3, 5, 8], "2": [2, 4, 6], "3": [2, 4, 6], "4": [2, 3, 5] };
+  const BEST = {}; let VISIT = 0;
+  const clearAll = () => { timers.forEach(clearTimeout); timers = []; cleanups.forEach(f => f()); cleanups = []; };
 
   /* keep the screen awake if the browser allows it; ignore failure */
   let lock = null;
@@ -74,25 +89,7 @@ a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
     else body = `<polygon points="${poly(6, r * 1.1, 0)}" fill="${color}"/>`;
     return `<svg viewBox="0 0 100 100" aria-hidden="true">${body}</svg>`;
   };
-  let round = 0; const bump = () => { round++; roundEl.textContent = "Round " + round; };
-
-  /* ---------- 1: odd one out ---------- */
-  function oddOneOut() {
-    modEl.textContent = "Odd one out"; round = 0;
-    const holder = el("div", { class: "grid", style: "grid-template-columns:repeat(3,1fr)" }); app.append(el("h1", { text: "Tap the one that is different." }), holder);
-    function next() {
-      clearAll(); holder.replaceChildren(); bump();
-      const kind = pick(SHAPES), color = pick(COLORS), mode = pick(["shape", "color", "size"]); const odd = rnd(6);
-      for (let i = 0; i < 6; i++) {
-        let k = kind, c = color, s = 1;
-        if (i === odd) { if (mode === "shape") k = pick(SHAPES.filter(x => x !== kind)); if (mode === "color") c = pick(COLORS.filter(x => x !== color)); if (mode === "size") s = 0.62; }
-        const cell = el("button", { class: "cell", type: "button", "aria-label": "option " + (i + 1), html: shapeSvg(k, c, s) });
-        cell.addEventListener("click", () => { if (i === odd) { cell.classList.add("ok"); later(next, 250); } else { cell.classList.add("bad"); later(() => cell.classList.remove("bad"), 300); } });
-        holder.append(cell);
-      }
-    }
-    next();
-  }
+  let round = 0; const bump = () => { round++; };
 
   /* ---------- 2: memory match ---------- */
   function memory() {
@@ -111,7 +108,7 @@ a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
           cell.classList.remove("back"); cell.innerHTML = shapeSvg(d[0], d[1]);
           if (first === null) { first = i; return; }
           const a = first, b = i; first = null;
-          if (deck[a][0] === deck[b][0] && deck[a][1] === deck[b][1]) { cells[a].classList.add("done"); cells[b].classList.add("done"); left -= 2; if (left <= 0) later(board, 700); }
+          if (deck[a][0] === deck[b][0] && deck[a][1] === deck[b][1]) { POINT(); cells[a].classList.add("done"); cells[b].classList.add("done"); left -= 2; if (left <= 0) later(board, 700); }
           else { busy = true; later(() => { [a, b].forEach(x => { cells[x].classList.add("back"); cells[x].innerHTML = ""; }); busy = false; }, 800); }
         });
         holder.append(cell);
@@ -134,51 +131,135 @@ a#back{color:var(--acc);text-decoration:none;font-weight:600;margin-right:12px}
       let s; do { s = shuffle(answer.split("")).join(""); } while (s === answer);
       word.textContent = s;
     }
-    inp.addEventListener("input", () => { if (inp.value.trim().toLowerCase() === answer) { inp.style.borderColor = "var(--ok)"; later(() => { inp.style.borderColor = ""; next(); }, 350); } });
+    inp.addEventListener("input", () => { if (inp.value.trim().toLowerCase() === answer) { POINT(); inp.style.borderColor = "var(--ok)"; later(() => { inp.style.borderColor = ""; next(); }, 350); } });
     skip.addEventListener("click", next); next();
   }
 
-  /* ---------- 4: read and answer ---------- */
-  const PASSAGES = [
-    { t: "Bridges", p: "Many bridges use arches, beams or cables. An arch pushes the weight outward and down into its supports. A beam bridge rests flat across two supports and carries the weight along its length. A suspension bridge hangs the road from cables that pass over tall towers. Engineers choose a type based on how far the bridge must span and what the ground can support.",
-      q: [["Which bridge type hangs the road from cables?", ["Arch", "Beam", "Suspension"], 2], ["Where does an arch push the weight?", ["Into its supports", "Up into the sky", "Into the cables"], 0]] },
-    { t: "Tides", p: "Tides are caused mainly by the pull of the Moon's gravity on Earth's oceans. Most coasts have two high tides and two low tides each day. The difference between high and low water varies from place to place. Narrow bays can have very large tidal ranges.",
-      q: [["What mainly causes tides?", ["Wind", "The Moon's gravity", "Rivers"], 1], ["How many high tides do most coasts have each day?", ["One", "Two", "Six"], 1]] },
-    { t: "Honeybees", p: "Honeybees live in colonies. Worker bees gather nectar and pollen from flowers. Nectar is turned into honey and stored in wax comb. A colony has one queen, who lays the eggs. In cold weather the bees cluster together to keep warm.",
-      q: [["What do worker bees gather?", ["Nectar and pollen", "Sand", "Leaves"], 0], ["Where is honey stored?", ["In the soil", "In wax comb", "In the flowers"], 1]] },
+  /* ---------- 5: picture hunt (generated scenes, find and tap the hidden object) ---------- */
+  const rr = (a, b) => a + Math.random() * (b - a);
+  const grad = (u, c1, c2) => `<defs><linearGradient id="${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="100" height="75" fill="url(#${u})"/>`;
+  const hill = (y0, amp, col) => { let d = "M0," + y0; const n = 4; for (let i = 0; i < n; i++) { const x1 = (i + .5) * 100 / n, x2 = (i + 1) * 100 / n; d += ` Q${x1.toFixed(1)},${(y0 - amp * rr(.3, 1) * (i % 2 ? 1 : -.6)).toFixed(1)} ${x2.toFixed(1)},${(y0 + rr(-.15, .15) * amp).toFixed(1)}`; } return `<path d="${d} L100,75 L0,75 Z" fill="${col}"/>`; };
+  const dots = (n, col, y1, r) => Array.from({ length: n }, () => `<circle cx="${rr(2, 98).toFixed(1)}" cy="${rr(2, y1).toFixed(1)}" r="${(r || .35) * rr(.6, 1.5)}" fill="${col}" opacity="${rr(.5, 1).toFixed(2)}"/>`).join("");
+  const SCENES = [
+    ["Hills at dusk", u => grad(u, "#3b2a6b", "#f59e6b") + `<circle cx="${rr(20, 80)}" cy="${rr(30, 42)}" r="7" fill="#ffe2b0"/>` + hill(48, 9, "#5b3f7a") + hill(58, 8, "#3a2a5c") + hill(68, 6, "#241a40")],
+    ["Sea at sunset", u => grad(u, "#ff9a62", "#ffd7a1") + `<circle cx="${rr(25, 75)}" cy="40" r="9" fill="#fff1c7"/><rect y="42" width="100" height="33" fill="#1f6f8b"/>` + Array.from({ length: 7 }, (_, i) => `<path d="M${rr(0, 30).toFixed(1)},${46 + i * 4} q6,-2 12,0 t12,0 t12,0 t12,0 t12,0" stroke="#bfe6ef" stroke-width=".5" fill="none" opacity=".7"/>`).join("")],
+    ["Night mountains", u => grad(u, "#0d1b3d", "#2a3f7a") + dots(60, "#ffffff", 40) + `<circle cx="${rr(15, 85)}" cy="14" r="5" fill="#f4f1d0"/><polygon points="0,75 0,52 ${rr(12, 24)},${rr(26, 38)} ${rr(30, 42)},50 ${rr(50, 62)},${rr(24, 36)} ${rr(68, 80)},50 100,${rr(36, 46)} 100,75" fill="#16264f"/>` + hill(64, 6, "#0c1731")],
+    ["Desert dunes", u => grad(u, "#ffcf9c", "#fff0d6") + `<circle cx="${rr(15, 85)}" cy="18" r="6" fill="#fff8e6"/>` + hill(44, 8, "#e9a65f") + hill(56, 8, "#d98f48") + hill(67, 6, "#b9713a")],
+    ["City at night", u => grad(u, "#101a33", "#37508f") + dots(25, "#ffffff", 30) + Array.from({ length: 12 }, (_, i) => { const h = rr(18, 44), x = i * 8.4, w = 7.6; return `<rect x="${x.toFixed(1)}" y="${(75 - h).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" fill="#0b1226"/>` + Array.from({ length: Math.floor(h / 6) }, (_, j) => Math.random() < .5 ? `<rect x="${(x + 1.5).toFixed(1)}" y="${(75 - h + 2 + j * 6).toFixed(1)}" width="1.6" height="2" fill="#ffd77a"/><rect x="${(x + 4.4).toFixed(1)}" y="${(75 - h + 2 + j * 6).toFixed(1)}" width="1.6" height="2" fill="#ffd77a"/>` : "").join(""); }).join("")],
+    ["Spring meadow", u => grad(u, "#9ad7ff", "#e9f7ff") + `<circle cx="${rr(15, 85)}" cy="14" r="6" fill="#fff3b0"/>` + hill(40, 7, "#7cc46a") + `<rect y="46" width="100" height="29" fill="#5fae52"/>` + Array.from({ length: 34 }, () => { const x = rr(3, 97), y = rr(48, 72), c = pick(["#ffffff", "#ffd54f", "#ff8fb3", "#c9a4ff"]); return `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + 3).toFixed(1)}" stroke="#2f7a3a" stroke-width=".4"/><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.1" fill="${c}"/>`; }).join("")],
+    ["Color mosaic", u => { const pal = shuffle(["#2a78d6", "#eb6834", "#1baf7a", "#6250d6", "#e87ba4", "#f2c14e", "#33415c"]); let out = ""; for (let r = 0; r < 7; r++) for (let c = 0; c < 10; c++) { const col = pick(pal), x = c * 10, y = r * 10.7; out += Math.random() < .5 ? `<rect x="${x + 1}" y="${(y + 1).toFixed(1)}" width="8" height="8.7" rx="1.2" fill="${col}"/>` : `<circle cx="${x + 5}" cy="${(y + 5.3).toFixed(1)}" r="4.2" fill="${col}"/>`; } return `<rect width="100" height="75" fill="#f4f1ea"/>` + out; }],
   ];
-  function reading() {
-    modEl.textContent = "Read and answer"; round = 0;
-    const box = el("div", { class: "grid" }); app.append(box);
-    let idx = rnd(PASSAGES.length);
-    function show() {
-      clearAll(); box.replaceChildren(); bump(); const P = PASSAGES[idx % PASSAGES.length]; idx++;
-      box.append(el("h1", { text: P.t }), el("p", { class: "passage", text: P.p }));
-      let answered = 0;
-      P.q.forEach(([qt, opts, right]) => {
-        const q = el("div", { class: "q" }, el("p", { text: qt }));
-        opts.forEach((o, i) => { const b = el("button", { class: "btn opt", type: "button", text: o }); b.addEventListener("click", () => {
-          if (i === right) { b.style.borderColor = "var(--ok)"; q.querySelectorAll("button").forEach(x => x.disabled = true); answered++; if (answered === P.q.length) later(() => { show(); window.scrollTo(0, 0); }, 900); }
-          else { b.style.borderColor = "var(--bad)"; later(() => { b.style.borderColor = ""; }, 400); } }); q.append(b); });
-        box.append(q);
+  const objectSvg = (kind, x, y) => {
+    if (kind === "balloon") return `<g><line x1="${x}" y1="${y + 2.6}" x2="${x}" y2="${y + 6.5}" stroke="#222" stroke-width=".5"/><ellipse cx="${x}" cy="${y}" rx="2.4" ry="2.9" fill="#e03d3d" stroke="#5a1111" stroke-width=".5"/></g>`;
+    if (kind === "star") return `<polygon points="${poly(5, 3.3, -Math.PI / 2, .45).split(" ").map(p => { const [a, b] = p.split(",").map(Number); return ((a - 50) + x).toFixed(2) + "," + ((b - 50) + y).toFixed(2); }).join(" ")}" fill="#ffd54f" stroke="#7a5b00" stroke-width=".5"/>`;
+    if (kind === "bird") return `<path d="M${x - 3},${y} q1.5,-2.8 3,0 q1.5,-2.8 3,0" stroke="#111" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M${x - 3},${y} q1.5,-2.8 3,0 q1.5,-2.8 3,0" stroke="#fff" stroke-width=".8" fill="none" stroke-linecap="round"/>`;
+    return `<g><polygon points="${x},${y - 3.4} ${x + 2.4},${y} ${x},${y + 3.4} ${x - 2.4},${y}" fill="#ff5fa8" stroke="#6a1840" stroke-width=".5"/><path d="M${x},${y + 3.4} q-1.6,2 0,3.6 q1.6,1.6 0,3.4" stroke="#222" stroke-width=".4" fill="none"/></g>`;
+  };
+  function hunt() {
+    modEl.textContent = "Picture hunt";
+    let found = 0, uid = 0, perTarget = 0; const TARGETS = ["balloon", "star", "bird", "kite"]; let target = pick(TARGETS);
+    const feed = el("div", { class: "feed" }), sentinel = el("div", { style: "height:2px" });
+    app.append(el("h1", { text: "Find the hidden object in each picture and tap it." }), el("p", { class: "round", text: "Keep scrolling for more pictures." }), feed, sentinel);
+    function addCard() {
+      if (perTarget >= 5) { perTarget = 0; target = pick(TARGETS.filter(t => t !== target)); } perTarget++;
+      const [name, fn] = pick(SCENES.filter(x => x[0] !== "Color mosaic")), u = "g" + (++uid), ox = Math.round(rr(9, 91)), oy = Math.round(rr(12, 62)), tg = target;
+      const card = el("div", { class: "card2", "data-ox": ox, "data-oy": oy });
+      card.innerHTML = `<svg viewBox="0 0 100 75" role="img" aria-label="${name}. Find the ${tg}.">${fn(u)}${objectSvg(tg, ox, oy)}</svg>`;
+      const st = el("span", { class: "st", text: "Find the " + tg }), cap = el("div", { class: "cap" }, [el("b", { text: name }), st]); card.append(cap);
+      const svg = card.querySelector("svg");
+      svg.addEventListener("click", e => {
+        if (card.dataset.done) return; const r = svg.getBoundingClientRect(); if (!r.width) return;
+        const x = (e.clientX - r.left) / r.width * 100, y = (e.clientY - r.top) / r.width * 100;
+        if (Math.hypot(x - ox, y - oy) < 7) { card.dataset.done = "1"; svg.insertAdjacentHTML("beforeend", `<circle cx="${ox}" cy="${oy}" r="5.5" fill="none" stroke="#1f9d55" stroke-width="1.1"/>`); cap.classList.add("ok"); st.textContent = "Found it"; found++; POINT(); }
       });
+      feed.append(card);
     }
-    show();
+    if ("IntersectionObserver" in window) {
+      const io = new IntersectionObserver(es => { if (es[0].isIntersecting) for (let i = 0; i < 3; i++) addCard(); }, { rootMargin: "900px" });
+      io.observe(sentinel); cleanups.push(() => io.disconnect()); for (let i = 0; i < 3; i++) addCard();
+    } else { for (let i = 0; i < 12; i++) addCard(); }
   }
 
-  const MODS = { "1": oddOneOut, "2": memory, "3": scramble, "4": reading };
-  const INFO = [["1", "Odd one out", "Tap the shape that is different."], ["2", "Memory match", "Find the matching pairs."],
-                ["3", "Word scramble", "Unscramble the word and type it."], ["4", "Read and answer", "Read a short passage and answer questions."]];
+  /* ---------- 5: picture quiz (generated pictures with count / identify / position questions) ---------- */
+  const KINDS = ["balloon", "star", "bird", "kite"];
+  const PLURAL = { balloon: "red balloons", star: "yellow stars", bird: "birds", kite: "pink kites" };
+  const SINGLE = { balloon: "red balloon", star: "yellow star", bird: "bird", kite: "pink kite" };
+  const scatter = n => { const pts = []; let tries = 0; while (pts.length < n && tries++ < 600) { const x = Math.round(rr(8, 92)), y = Math.round(rr(11, 63)); if (pts.every(p => Math.hypot(p[0] - x, p[1] - y) > 13)) pts.push([x, y]); } return pts; };
+  function quiz() {
+    modEl.textContent = "Picture quiz";
+    let answered = 0, uid = 100;
+    const feed = el("div", { class: "feed" }), sentinel = el("div", { style: "height:2px" });
+    app.append(el("h1", { text: "Look at each picture and choose the answer." }), el("p", { class: "round", text: "Scroll down for the next one." }), feed, sentinel);
+    function addCard() {
+      const [name, fn] = pick(SCENES), u = "q" + (++uid), type = pick(["count", "count", "identify", "position"]), kind = pick(KINDS);
+      let q, opts, right, extra = "";
+      if (type === "count") {
+        const pts = scatter(2 + rnd(8)), n = pts.length; extra = pts.map(p => objectSvg(kind, p[0], p[1])).join("");
+        const others = shuffle([n - 2, n - 1, n + 1, n + 2].filter(v => v >= 1 && v !== n)).slice(0, 3);
+        opts = shuffle(others.concat([n])).map(String); right = String(n); q = "How many " + PLURAL[kind] + " are in the picture?";
+      } else if (type === "identify") {
+        opts = shuffle([name].concat(shuffle(SCENES.map(x => x[0]).filter(x => x !== name)).slice(0, 3))); right = name; q = "What kind of place is this?";
+      } else {
+        const zone = pick([["Left", 10, 28], ["Middle", 42, 58], ["Right", 72, 90]]); extra = objectSvg(kind, Math.round(rr(zone[1], zone[2])), Math.round(rr(14, 60)));
+        opts = ["Left", "Middle", "Right"]; right = zone[0]; q = "Which side of the picture is the " + SINGLE[kind] + " on?";
+      }
+      const card = el("div", { class: "card2" }); card.innerHTML = `<svg viewBox="0 0 100 75" role="img" aria-label="${name}">${fn(u)}${extra}</svg>`;
+      const box = el("div", { class: "qb" }, el("p", { text: q })), grid = el("div", { class: "opts" });
+      opts.forEach(o => { const b = el("button", { class: "btn", type: "button", text: o }); b.addEventListener("click", () => {
+        if (card.dataset.done) return; card.dataset.done = "1"; answered++;
+        grid.querySelectorAll("button").forEach(x => { x.disabled = true; if (x.textContent === right) x.style.borderColor = "var(--ok)"; });
+        if (o === right) POINT(); else b.style.borderColor = "var(--bad)"; }); grid.append(b); });
+      box.append(grid); card.append(box); feed.append(card);
+    }
+    if ("IntersectionObserver" in window) {
+      const io = new IntersectionObserver(es => { if (es[0].isIntersecting) for (let i = 0; i < 2; i++) addCard(); }, { rootMargin: "900px" });
+      io.observe(sentinel); cleanups.push(() => io.disconnect()); for (let i = 0; i < 2; i++) addCard();
+    } else { for (let i = 0; i < 10; i++) addCard(); }
+  }
+
+  const MODS = { "1": memory, "2": scramble, "3": quiz, "4": hunt };
+  const INFO = [["1", "Memory match", "Find the matching pairs."], ["2", "Word scramble", "Unscramble the word and type it."],
+                ["3", "Picture quiz", "Look at a picture and answer a question about it."], ["4", "Picture hunt", "Scroll through pictures and tap the hidden object."]];
   const backEl = document.getElementById("back");
+  const fmt = n => Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
   function menu() {
     modEl.textContent = "Study activities"; backEl.hidden = true;
     app.append(el("h1", { text: "Choose an activity." }), el("p", { class: "round", text: "You can switch to another one at any time." }),
       ...INFO.map(([k, n, d]) => el("a", { class: "tile", href: "#" + k }, [el("b", { text: n }), el("span", { text: d })])));
+    const ranked = Object.keys(BEST).sort((x, y) => BEST[y] - BEST[x]);
+    if (ranked.length) app.append(el("div", { class: "q" }, [el("p", { text: "Your best scores this visit" }),
+      ...ranked.map(k => el("div", { class: "row", style: "justify-content:space-between;padding:4px 0" }, [el("span", { text: NAMES[k] }), el("b", { text: String(BEST[k]) })])),
+      el("p", { class: "round", style: "margin-top:8px;font-size:14px", text: "Total so far: " + VISIT + ". Scores stay on this screen and clear when you close the page." })]));
+  }
+  function begin(key) {
+    modEl.textContent = NAMES[key]; backEl.hidden = false;
+    app.append(el("h1", { text: NAMES[key] }), el("p", { class: "round", text: SECS[key] + " seconds. Get as many right as you can." }),
+      BEST[key] != null ? el("p", { class: "round", text: "Your best this visit: " + BEST[key] }) : null,
+      el("button", { class: "btn primary", type: "button", text: "Start", onclick: () => play(key) }));
+  }
+  function play(key) {
+    stopRound(); clearAll(); app.replaceChildren(); window.scrollTo(0, 0); round = 0;
+    let score = 0, left = SECS[key];
+    const show = () => { roundEl.textContent = "Score " + score + "  \u00b7  " + fmt(left); };
+    POINT = () => { score++; show(); }; show(); MODS[key]();
+    roundTimer = setInterval(() => { left--; show(); if (left <= 0) finish(key, score); }, 1000);
+  }
+  function finish(key, score) {
+    stopRound(); clearAll(); app.replaceChildren(); roundEl.textContent = ""; VISIT += score;
+    const isBest = score > (BEST[key] || 0); if (isBest || BEST[key] == null) BEST[key] = Math.max(score, BEST[key] || 0);
+    const m = MEDALS[key], medal = score >= m[2] ? "Gold" : score >= m[1] ? "Silver" : score >= m[0] ? "Bronze" : "Nice try";
+    app.append(el("h1", { text: "Time's up!" }), el("div", { class: "big", style: "font-size:64px", text: String(score) }),
+      el("p", { class: "round", style: "text-align:center", text: "correct" }),
+      el("p", { style: "text-align:center;font-size:22px;font-weight:700;margin:0", text: medal + (isBest && score > 0 ? " \u00b7 New best!" : "") }),
+      el("p", { class: "round", style: "text-align:center", text: "Best this visit: " + BEST[key] }),
+      el("button", { class: "btn primary", type: "button", text: "Play again", onclick: () => play(key) }),
+      el("a", { class: "tile", href: "#" }, el("b", { text: "Choose another activity" })));
+    window.scrollTo(0, 0);
   }
   function route() {
-    clearAll(); app.replaceChildren(); roundEl.textContent = ""; round = 0;
+    stopRound(); clearAll(); app.replaceChildren(); roundEl.textContent = ""; round = 0;
     const key = (location.hash || "").replace("#", "");
-    if (MODS[key]) { backEl.hidden = false; MODS[key](); } else menu();
+    if (MODS[key]) begin(key); else menu();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", route);
